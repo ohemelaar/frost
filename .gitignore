@@ -6,6 +6,7 @@
 *.dex
 *.pro
 *.yml
+*~
 
 bin/
 build/
@@ -23,3 +24,4 @@ local.properties
 gradle.properties
 gradlew
 gradlew.bat
+.DS_Store

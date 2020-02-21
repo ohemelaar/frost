@@ -1,4 +1,4 @@
-#! /bin/bash
+#!/bin/bash
 
 APP="../app/src/main/res/xml/appfilter.xml"
 
@@ -44,6 +44,8 @@ tr ' ' '\n' < onefilter.xml > twofilter.xml
 sed -ri 's:.+:    &:g' twofilter.xml
 # replace bar character with space in items
 sed -ri 's:\|: :g' twofilter.xml
+# add space at the end
+sed -ri 's:\s?\/>: \/>:g' twofilter.xml
 
 echo "<resources>" > ${APP}
 cat twofilter.xml >> ${APP}
