@@ -1,150 +1,125 @@
-from xml.etree.ElementTree import ElementTree
-from svg.path import parse_path, Path, Close, CubicBezier, QuadraticBezier, Arc, Move
-from cmath import polar
-from subprocess import check_output, call
 import sys
+from subprocess import call, check_output
+from xml.etree.ElementTree import ElementTree
 
-def open_xml(filename):
-    print('opening xml file')
-    xml = ElementTree()
-    xml.parse(filename)
-    return xml
+from svgpathtools import (
+    Arc,
+    CubicBezier,
+    Path,
+    QuadraticBezier,
+    disvg,
+    svg2paths2,
+    wsvg,
+)
 
-def find_svg_center(xml):
-    print('searching svg center')
-    viewbox = xml.getroot().attrib.get('viewBox').split(' ')
-    viewbox = list(map(lambda x: float(x), viewbox))
-    center = (viewbox[0] + viewbox[2])/2 + (viewbox[1] + viewbox[3])*1j/2
-    return center
 
-def extract_path_from_svg(xml):
-    print('extracting path from svg')
-    paths = list(xml.getroot())
-    if len(paths) != 1:
-        # svg with multiple paths are not handled yet 
-        print('wtf')
-        print(input_name)
-        raise NotImplementedError
-    else:
-        data = paths[0].get('d')
-    return parse_path(data)
+def append_subpath(path, subpath):
+    for node in subpath:
+        path.append(node)
 
-def analyze_path(path, center):
-    """Returns a list of dicts with the following keys:
-    - data: the split shape object
-    - distances: list of distances from the shape's points to the center
-    - meandistance: mean of distances
+
+def bbox_to_barea(bbox):
+    return (bbox[1] - bbox[0]) * (bbox[3] - bbox[2])
+
+
+def scale_path_to_bbox(path, bbox):
     """
-    print('analysing path data')
-    group = {}
-    groups = []
-    for node in list(path):
-        group.setdefault('data', []).append(node)
-        # Compute distance to center for each point in the path
-        group.setdefault('distances', []).append(
-                polar(node.start - center)[0]
-                )
-        # Each shape ends with a Close node
-        if type(node) == Close:
-            groups.append(group)
-            group['meandistance'] = sum(group['distances'])/len(group['distances'])
-            group = {}
-    return groups
+    Scales a path to be contained by a bounding box.
+    Expands the path from the center of the bounding box.
+    Does not place the path in the center of the bounding box.
 
-def remove_outer_shape(input_name, output_name):
-    """Also scales back the shape to fill the drawing"""
-    print('deleting outer shape')
-    # todo remove extractions, and fix the size to 48 px
+    bbox has the same format as svgpathtools', (x1, y1, x2, y2)
+    """
+    original_bbox = path.bbox()
+
+    bbox_center = compute_bbox_center(bbox)
+    # we'll be comparing each path bbox coordinate to the bbox center
+    # it's easier done if we have a tuple with 4 elements for the center too
+    two_centers = (
+        bbox_center.real,
+        bbox_center.imag,
+        bbox_center.real,
+        bbox_center.imag,
+    )
+    # furthest projection is the path bbox coordinate that has the most
+    #   difference with the bbox center
+    # destination is the corresponding wanted bbox coordinate
+    # center is the corresponding center coordinate
+    furthest_projection, destination, center = max(
+        zip(original_bbox, bbox, two_centers), key=lambda t: abs(t[0] - t[2])
+    )
+    scale = abs(center - destination) / abs(center - furthest_projection)
+
+    # if we just applied the scaling factor, the path would be shifted
+    #   in a top-left to bottom-right motion so we need to translate the path
+    #   back to make the scaling effect from the bbox' center
+    translation_constant = bbox_center * (1 - scale)
+
+    new_path = Path()
+    for node in path:
+        node.start = node.start * scale + translation_constant
+        node.end = node.end * scale + translation_constant
+        if isinstance(node, CubicBezier):
+            node.control1 = node.control1 * scale + translation_constant
+            node.control2 = node.control2 * scale + translation_constant
+        elif isinstance(node, QuadraticBezier):
+            node.control = node.control * scale
+        elif isinstance(node, Arc):
+            node.radius = node.radius * scale
+        new_path.append(node)
+    return new_path
+
+
+def bbox_as_two_points(bbox):
+    """Returns a tuple of points (complex numbers) representing the bbox"""
+    return (bbox[0] + bbox[1] * 1j, bbox[2] + bbox[3] * 1j)
+
+
+def points_center(p1, p2):
+    """Returns the center of two points"""
+    return p1 + p2 / 2
+
+
+def compute_bbox_center(bbox):
+    p1, p2 = bbox_as_two_points(bbox)
+    return points_center(p1, p2)
+
+
+def extract_base_icon(input_name, output_name):
+    """Also scales the shape to use more space in the drawing"""
     # or use a parameter, whatever
-    xml = open_xml(input_name)
-    center = find_svg_center(xml)
-    path = extract_path_from_svg(xml)
-    groups = analyze_path(path, center)
-
-    # The mean distance to the center is used to find the outermost shape
-    to_remove = max(groups, key=lambda x: x['meandistance'])
-    groups.remove(to_remove)
+    center = 24 + 24j
+    paths, attributes, svg_attributes = svg2paths2(input_name)
+    if len(paths) > 1:
+        raise NotImplementedError("Can't handle more than one path for now")
+    path = paths[0]
+    subpaths = path.continuous_subpaths()
+    outer_shape = max(subpaths, key=lambda x: bbox_to_barea(x.bbox()))
+    subpaths.remove(outer_shape)
 
     # Generate a new path with the remaining shapes
     new_path = Path()
-    for group in groups:
-        for node in group['data']:
-            new_path.append(node)
+    for subpath in subpaths:
+        append_subpath(new_path, subpath)
 
-    # Write output file
-    xml.getroot()[0].set('d', new_path.d())
-    xml.write(output_name)
+    # Scale path up
+    new_path = scale_path_to_bbox(new_path, (2, 2, 46, 46))
+    wsvg(
+        [new_path],
+        attributes=attributes,
+        svg_attributes=svg_attributes,
+        filename=output_name,
+    )
 
-    # Find output file size
-    width, height = extract_svg_size(output_name)
-    ratio = get_optimal_scaling_ratio(height, width, 48)
-    resized_path = resize_path(new_path, ratio)
-
-    # Write output file
-    xml.getroot()[0].set('d', new_path.d())
-    xml.write(output_name)
-
-    # Center drawing
-    call(['inkscape', '--verb', 'EditSelectAll', '--verb', 'AlignHorizontalCenter', '--verb', 'AlignVerticalCenter', '--verb', 'FileSave', '--verb', 'FileQuit', output_name])
-    
-
-def extract_svg_size(filename):
-    print('extracting svg size')
-    width = float(check_output(['inkscape', '-W', filename]))
-    height = float(check_output(['inkscape', '-H', filename]))
-    print(f'found svg size: {width} {height}')
-    return width, height
-
-def get_optimal_scaling_ratio(height, width, target):
-    """Finds the scaling ratio that should be applied in order for the graphics to be contained in a square of a target size."""
-    print('computing scaling ratio')
-    if height > width:
-        ratio = target / height
-    else:
-        ratio = target / width
-    print(f'scaling ratio is {ratio}')
-    return ratio
-
-def resize_path(path, ratio):
-    print('resizing path')
-    new_path = Path()
-    for node in path:
-        node.start = node.start * ratio
-        node.end = node.end * ratio
-        if isinstance(node, CubicBezier):
-            node.control1 = node.control1 * ratio
-            node.control2 = node.control2 * ratio
-        elif isinstance(node, QuadraticBezier):
-            node.control = node.control * ratio
-        elif isinstance(node, Arc):
-            node.radius = node.radius * ratio
-        new_path.append(node)
-    return new_path 
-
-# base_names = ['feeder', 'forecastie', 'keepassdx', 'downloads', 'casper', 'cythara', 'clover', 'bus_circle', 'a2048', 'aimsicd', 'anydesk', 'apex', 'arbetsfor', 'atomic', 'audinaut', 'authy', 'battery', 'bible', 'birthdayadapter', 'bitcoin', 'bluetooth']
-# for base_name in base_names:
-#     input_file = f'icons/{base_name}.svg'
-#     output_file = f'icons/{base_name}.new.svg'
-#     try:
-#         remove_outer_shape(input_file, output_file)
-#     except Exception:
-#         print('fail')
-#         print(base_name)
 
 def main():
-    # print(sys.argv[1])
     base_name = sys.argv[1]
-    # base_name = 'blabla_circle'
-    input_file = f'icons/{base_name}.svg'
-    output_file = f'icons/{base_name}.new.svg'
+    input_file = f"icons/{base_name}.svg"
+    output_file = f"icons/{base_name}.new.svg"
     try:
-        remove_outer_shape(input_file, output_file)
+        extract_base_icon(input_file, output_file)
     except Exception as ex:
         print(ex)
-        
 
-# base_name = 'blabla_circle'
-# input_file = f'icons/{base_name}.svg'
-# xml = open_xml(input_file)
-# path = extract_path_from_svg(xml)
+
 main()
