@@ -112,6 +112,31 @@ def extract_base_icon(input_name, output_name):
     )
 
 
+def add_circle(input_file, output_file):
+    """
+    Adds a circle around the base icon. This will have the effect to invert
+    the mask.
+    """
+    paths, attributes, svg_attributes = svg2paths2(input_file)
+    if len(paths) > 1:
+        raise NotImplementedError("Can't handle more than one path for now")
+    path = paths[0]
+
+    # Scale path down
+    new_path = scale_path_to_bbox(path, (6, 6, 42, 42))
+
+    # Add circle
+    new_path.append(Arc(24 + 2j, 22+22j, 180, 0, 1, 24 + 46j))
+    new_path.append(Arc(24 + 46j, 22+22j, 180, 0, 1, 24 + 2j))
+
+    wsvg(
+        [new_path],
+        attributes=attributes,
+        svg_attributes=svg_attributes,
+        filename=output_file,
+    )
+
+
 def main():
     base_name = sys.argv[1]
     input_file = f"icons/{base_name}.svg"
