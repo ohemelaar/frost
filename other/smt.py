@@ -77,7 +77,7 @@ def bbox_as_two_points(bbox):
 
 def points_center(p1, p2):
     """Returns the center of two points"""
-    return p1 + p2 / 2
+    return (p1 + p2) / 2
 
 
 def compute_bbox_center(bbox):
