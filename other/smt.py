@@ -87,7 +87,6 @@ def compute_bbox_center(bbox):
 
 def extract_base_icon(input_name, output_name):
     """Also scales the shape to use more space in the drawing"""
-    # or use a parameter, whatever
     center = 24 + 24j
     paths, attributes, svg_attributes = svg2paths2(input_name)
     if len(paths) > 1:
