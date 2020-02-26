@@ -85,10 +85,10 @@ def compute_bbox_center(bbox):
     return points_center(p1, p2)
 
 
-def extract_base_icon(input_name, output_name):
+def extract_base_icon(input_file, output_file):
     """Also scales the shape to use more space in the drawing"""
     center = 24 + 24j
-    paths, attributes, svg_attributes = svg2paths2(input_name)
+    paths, attributes, svg_attributes = svg2paths2(input_file)
     if len(paths) > 1:
         raise NotImplementedError("Can't handle more than one path for now")
     path = paths[0]
@@ -107,7 +107,7 @@ def extract_base_icon(input_name, output_name):
         [new_path],
         attributes=attributes,
         svg_attributes=svg_attributes,
-        filename=output_name,
+        filename=output_file,
     )
 
 
